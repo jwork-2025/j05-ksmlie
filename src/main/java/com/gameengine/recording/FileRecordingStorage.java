@@ -1,60 +1,85 @@
 package com.gameengine.recording;
 
-import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 public class FileRecordingStorage implements RecordingStorage {
+    private final File dir;
     private BufferedWriter writer;
+    private File currentFile;
 
-    @Override
-    public void openWriter(String path) throws IOException {
-        Path p = Paths.get(path);
-        if (p.getParent() != null) Files.createDirectories(p.getParent());
-        writer = Files.newBufferedWriter(p);
+    public FileRecordingStorage() {
+        this.dir = new File("recordings");
+        if (!dir.exists())
+            dir.mkdirs();
     }
 
     @Override
-    public void writeLine(String line) throws IOException {
-        if (writer == null) throw new IllegalStateException("writer not opened");
+    public void openForWrite(String name) throws Exception {
+        String safe = name.replaceAll("[^a-zA-Z0-9_-]", "_");
+        this.currentFile = new File(dir, safe + ".jsonl");
+        this.writer = new BufferedWriter(new FileWriter(currentFile, StandardCharsets.UTF_8, false));
+    }
+
+    @Override
+    public void appendLine(String line) throws Exception {
+        if (writer == null)
+            throw new IllegalStateException("writer not opened");
         writer.write(line);
-        writer.newLine();
+        writer.write("\n");
     }
 
     @Override
-    public void closeWriter() {
+    public void flush() throws Exception {
+        if (writer != null)
+            writer.flush();
+    }
+
+    @Override
+    public void closeWrite() throws Exception {
         if (writer != null) {
-            try { writer.flush(); } catch (Exception ignored) {}
-            try { writer.close(); } catch (Exception ignored) {}
+            try {
+                writer.flush();
+            } catch (Exception ignored) {
+            }
+            try {
+                writer.close();
+            } catch (Exception ignored) {
+            }
             writer = null;
         }
+        currentFile = null;
     }
 
     @Override
-    public Iterable<String> readLines(String path) throws IOException {
+    public List<String> listRecordings() throws Exception {
+        File[] files = dir.listFiles((d, n) -> n.endsWith(".jsonl"));
+        if (files == null)
+            return Collections.emptyList();
+        List<String> names = new ArrayList<>();
+        for (File f : files)
+            names.add(f.getName());
+        return names;
+    }
+
+    @Override
+    public List<String> readAll(String name) throws Exception {
+        File f = name.endsWith(".jsonl") ? new File(dir, name) : new File(dir, name + ".jsonl");
+        if (!f.exists())
+            return Collections.emptyList();
         List<String> lines = new ArrayList<>();
-        try (BufferedReader br = Files.newBufferedReader(Paths.get(path))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                lines.add(line);
-            }
+        try (BufferedReader br = new BufferedReader(new FileReader(f, StandardCharsets.UTF_8))) {
+            String s;
+            while ((s = br.readLine()) != null)
+                lines.add(s);
         }
         return lines;
     }
-
-    @Override
-    public List<File> listRecordings() {
-        File dir = new File("recordings");
-        if (!dir.exists() || !dir.isDirectory()) return new ArrayList<>();
-        File[] files = dir.listFiles((d, name) -> name.endsWith(".json") || name.endsWith(".jsonl"));
-        if (files == null) return new ArrayList<>();
-        Arrays.sort(files, (a,b) -> Long.compare(b.lastModified(), a.lastModified()));
-        return new ArrayList<>(Arrays.asList(files));
-    }
 }
-
-
